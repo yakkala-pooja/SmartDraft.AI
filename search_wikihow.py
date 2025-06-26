@@ -12,7 +12,6 @@ from sentence_transformers import SentenceTransformer
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Default paths
 INDEX_DIR = Path('wikihow_index')
 INDEX_PATH = INDEX_DIR / 'wikihow_faiss.index'
 METADATA_PATH = INDEX_DIR / 'wikihow_metadata.pkl'
