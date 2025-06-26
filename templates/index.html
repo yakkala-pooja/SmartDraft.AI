@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartDraft.AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
+    <style>
+        body {
+            padding-top: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 1200px;
+        }
+        .card {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .editor-container {
+            height: 500px;
+            margin-bottom: 20px;
+        }
+        #editor {
+            height: 100%;
+        }
+        .CodeMirror {
+            height: 100% !important;
+            border-radius: 4px;
+        }
+        .status-indicator {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+        .auto-save-indicator {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            z-index: 1000;
+        }
+        .sessions-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .evaluation-form {
+            display: none;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="mb-4">
+            <div class="row">
+                <div class="col">
+                    <h1 class="display-4">SmartDraft.AI</h1>
+                    <p class="lead">Generate structured documents using semantic search and local LLMs</p>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#sessionsModal">
+                        <i class="bi bi-folder"></i> My Drafts
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Generate Document</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="generateForm">
+                            <div class="mb-3">
+                                <label for="promptInput" class="form-label">Your Request</label>
+                                <textarea class="form-control" id="promptInput" rows="4" placeholder="Enter your request here..."></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label for="modelSelect" class="form-label">Language Model</label>
+                                <select class="form-select" id="modelSelect">
+                                    {% for model in models %}
+                                    <option value="{{ model }}" {% if model == default_model %}selected{% endif %}>{{ model }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="chunksInput" class="form-label">Content Chunks</label>
+                                <input type="number" class="form-control" id="chunksInput" value="3" min="1" max="10">
+                                <div class="form-text">Number of content chunks to retrieve</div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100" id="generateBtn">
+                                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true" id="generateSpinner"></span>
+                                Generate Document
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Document Actions</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-success" id="exportBtn" disabled>
+                                <i class="bi bi-download"></i> Export as Markdown
+                            </button>
+                            <button class="btn btn-outline-primary" id="copyBtn" disabled>
+                                <i class="bi bi-clipboard"></i> Copy to Clipboard
+                            </button>
+                            <button class="btn btn-outline-secondary" id="newBtn">
+                                <i class="bi bi-plus-circle"></i> New Document
+                            </button>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-outline-info w-100" id="evaluateBtn" disabled>
+                                <i class="bi bi-star"></i> Evaluate Document
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Document Editor</h5>
+                        <span class="status-indicator" id="statusIndicator">No document loaded</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="editor-container">
+                            <textarea id="editor"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="evaluation-form" id="evaluationForm">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Document Evaluation</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">Relevance Rating (1-5)</label>
+                                <div class="rating">
+                                    <div class="btn-group" role="group">
+                                        <input type="radio" class="btn-check" name="relevanceRating" id="rating1" value="1">
+                                        <label class="btn btn-outline-warning" for="rating1">1</label>
+                                        <input type="radio" class="btn-check" name="relevanceRating" id="rating2" value="2">
+                                        <label class="btn btn-outline-warning" for="rating2">2</label>
+                                        <input type="radio" class="btn-check" name="relevanceRating" id="rating3" value="3">
+                                        <label class="btn btn-outline-warning" for="rating3">3</label>
+                                        <input type="radio" class="btn-check" name="relevanceRating" id="rating4" value="4">
+                                        <label class="btn btn-outline-warning" for="rating4">4</label>
+                                        <input type="radio" class="btn-check" name="relevanceRating" id="rating5" value="5">
+                                        <label class="btn btn-outline-warning" for="rating5">5</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Time Saved (minutes)</label>
+                                <input type="number" class="form-control" id="timeSavedInput" min="0" value="0">
+                            </div>
+                            <button type="button" class="btn btn-primary" id="submitEvaluationBtn">Submit Evaluation</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto-save indicator -->
+    <div class="auto-save-indicator" id="autoSaveIndicator">
+        <i class="bi bi-cloud-check"></i> Auto-saved
+    </div>
+
+    <!-- Sessions Modal -->
+    <div class="modal fade" id="sessionsModal" tabindex="-1" aria-labelledby="sessionsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="sessionsModalLabel">My Drafts</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="sessions-list" id="sessionsList">
+                        <p class="text-center text-muted">Loading sessions...</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+    <script>
+        // Global variables
+        let editor;
+        let currentSessionId = null;
+        let currentDocument = null;
+        let autoSaveTimeout = null;
+        let lastEditTime = Date.now();
+
+        // Initialize on document load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize the Markdown editor
+            editor = new EasyMDE({
+                element: document.getElementById('editor'),
+                spellChecker: true,
+                autosave: {
+                    enabled: false
+                },
+                status: ['lines', 'words'],
+                toolbar: ['bold', 'italic', 'heading', '|', 
+                         'unordered-list', 'ordered-list', '|', 
+                         'link', 'quote', 'code', '|', 
+                         'preview', 'side-by-side', 'fullscreen']
+            });
+            
+            // Disable editor initially
+            editor.codemirror.setOption('readOnly', true);
+            
+            // Set up event listeners
+            setupEventListeners();
+            
+            // Load sessions on startup
+            loadSessions();
+            
+            // Check for session ID in localStorage
+            const savedSessionId = localStorage.getItem('currentSessionId');
+            if (savedSessionId) {
+                loadSession(savedSessionId);
+            }
+        });
+
+        function setupEventListeners() {
+            // Generate form submission
+            document.getElementById('generateForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                generateDocument();
+            });
+            
+            // Editor change event for auto-save
+            editor.codemirror.on('change', function() {
+                if (currentSessionId) {
+                    lastEditTime = Date.now();
+                    scheduleAutoSave();
+                }
+            });
+            
+            // Export button
+            document.getElementById('exportBtn').addEventListener('click', function() {
+                if (currentSessionId) {
+                    exportDocument(currentSessionId);
+                }
+            });
+            
+            // Copy button
+            document.getElementById('copyBtn').addEventListener('click', function() {
+                copyToClipboard();
+            });
+            
+            // New button
+            document.getElementById('newBtn').addEventListener('click', function() {
+                resetEditor();
+            });
+            
+            // Evaluate button
+            document.getElementById('evaluateBtn').addEventListener('click', function() {
+                toggleEvaluationForm();
+            });
+            
+            // Submit evaluation button
+            document.getElementById('submitEvaluationBtn').addEventListener('click', function() {
+                submitEvaluation();
+            });
+            
+            // Sessions modal event
+            document.getElementById('sessionsModal').addEventListener('show.bs.modal', function() {
+                loadSessions();
+            });
+        }
+
+        function generateDocument() {
+            const prompt = document.getElementById('promptInput').value.trim();
+            if (!prompt) {
+                alert('Please enter a request');
+                return;
+            }
+            
+            const model = document.getElementById('modelSelect').value;
+            const chunks = document.getElementById('chunksInput').value;
+            
+            // Show loading state
+            const generateBtn = document.getElementById('generateBtn');
+            const generateSpinner = document.getElementById('generateSpinner');
+            generateBtn.disabled = true;
+            generateSpinner.classList.remove('d-none');
+            
+            // Generate a new session ID if none exists
+            if (!currentSessionId) {
+                currentSessionId = generateUUID();
+            }
+            
+            // Make API request
+            fetch('/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    prompt: prompt,
+                    model: model,
+                    chunks: chunks,
+                    sessionId: currentSessionId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Update session ID and document
+                currentSessionId = data.sessionId;
+                currentDocument = data.document;
+                
+                // Save to localStorage
+                localStorage.setItem('currentSessionId', currentSessionId);
+                
+                // Update editor
+                editor.codemirror.setOption('readOnly', false);
+                editor.value(data.document.formatted_text);
+                
+                // Update status
+                updateStatus('Document generated');
+                
+                // Enable buttons
+                document.getElementById('exportBtn').disabled = false;
+                document.getElementById('copyBtn').disabled = false;
+                document.getElementById('evaluateBtn').disabled = false;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error generating document: ' + error.message);
+            })
+            .finally(() => {
+                // Reset loading state
+                generateBtn.disabled = false;
+                generateSpinner.classList.add('d-none');
+            });
+        }
+
+        function scheduleAutoSave() {
+            // Clear existing timeout
+            if (autoSaveTimeout) {
+                clearTimeout(autoSaveTimeout);
+            }
+            
+            // Schedule new auto-save
+            autoSaveTimeout = setTimeout(function() {
+                // Only save if it's been at least 2 seconds since the last edit
+                if (Date.now() - lastEditTime >= 2000) {
+                    autoSaveDocument();
+                }
+            }, 3000);
+        }
+
+        function autoSaveDocument() {
+            if (!currentSessionId || !currentDocument) return;
+            
+            // Update document with latest content
+            currentDocument.formatted_text = editor.value();
+            
+            // Save to server
+            fetch('/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    document: currentDocument,
+                    sessionId: currentSessionId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Show auto-save indicator
+                showAutoSaveIndicator();
+            })
+            .catch(error => {
+                console.error('Auto-save error:', error);
+            });
+        }
+
+        function showAutoSaveIndicator() {
+            const indicator = document.getElementById('autoSaveIndicator');
+            indicator.style.display = 'block';
+            
+            // Hide after 2 seconds
+            setTimeout(function() {
+                indicator.style.display = 'none';
+            }, 2000);
+        }
+
+        function exportDocument(sessionId) {
+            window.open(`/export/${sessionId}`, '_blank');
+        }
+
+        function copyToClipboard() {
+            const content = editor.value();
+            navigator.clipboard.writeText(content)
+                .then(() => {
+                    alert('Document copied to clipboard!');
+                })
+                .catch(err => {
+                    console.error('Failed to copy:', err);
+                    alert('Failed to copy to clipboard');
+                });
+        }
+
+        function resetEditor() {
+            // Clear editor
+            editor.value('');
+            editor.codemirror.setOption('readOnly', true);
+            
+            // Reset state
+            currentSessionId = null;
+            currentDocument = null;
+            localStorage.removeItem('currentSessionId');
+            
+            // Reset form
+            document.getElementById('promptInput').value = '';
+            
+            // Disable buttons
+            document.getElementById('exportBtn').disabled = true;
+            document.getElementById('copyBtn').disabled = true;
+            document.getElementById('evaluateBtn').disabled = true;
+            
+            // Hide evaluation form
+            document.getElementById('evaluationForm').style.display = 'none';
+            
+            // Update status
+            updateStatus('No document loaded');
+        }
+
+        function loadSessions() {
+            fetch('/sessions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    
+                    const sessionsList = document.getElementById('sessionsList');
+                    
+                    if (data.sessions.length === 0) {
+                        sessionsList.innerHTML = '<p class="text-center text-muted">No saved drafts found</p>';
+                        return;
+                    }
+                    
+                    // Sort sessions by timestamp (newest first)
+                    data.sessions.sort((a, b) => {
+                        return new Date(b.timestamp) - new Date(a.timestamp);
+                    });
+                    
+                    // Create sessions list
+                    let html = '<div class="list-group">';
+                    data.sessions.forEach(session => {
+                        const date = new Date(session.timestamp);
+                        const formattedDate = date.toLocaleString();
+                        
+                        html += `
+                            <a href="#" class="list-group-item list-group-item-action session-item" data-session-id="${session.sessionId}">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1">${truncateText(session.prompt, 50)}</h5>
+                                    <small>${formattedDate}</small>
+                                </div>
+                                <p class="mb-1">Model: ${session.model}</p>
+                            </a>
+                        `;
+                    });
+                    html += '</div>';
+                    
+                    sessionsList.innerHTML = html;
+                    
+                    // Add click event to session items
+                    document.querySelectorAll('.session-item').forEach(item => {
+                        item.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            const sessionId = this.getAttribute('data-session-id');
+                            loadSession(sessionId);
+                            
+                            // Close modal
+                            const modal = bootstrap.Modal.getInstance(document.getElementById('sessionsModal'));
+                            modal.hide();
+                        });
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading sessions:', error);
+                    document.getElementById('sessionsList').innerHTML = 
+                        '<p class="text-center text-danger">Error loading sessions</p>';
+                });
+        }
+
+        function loadSession(sessionId) {
+            fetch(`/session/${sessionId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    
+                    // Update state
+                    currentSessionId = sessionId;
+                    currentDocument = data.document;
+                    
+                    // Save to localStorage
+                    localStorage.setItem('currentSessionId', sessionId);
+                    
+                    // Update editor
+                    editor.codemirror.setOption('readOnly', false);
+                    editor.value(data.document.formatted_text);
+                    
+                    // Update form
+                    document.getElementById('promptInput').value = data.document.user_prompt;
+                    document.getElementById('modelSelect').value = data.document.model;
+                    document.getElementById('chunksInput').value = data.document.chunks_used;
+                    
+                    // Enable buttons
+                    document.getElementById('exportBtn').disabled = false;
+                    document.getElementById('copyBtn').disabled = false;
+                    document.getElementById('evaluateBtn').disabled = false;
+                    
+                    // Update status
+                    updateStatus('Document loaded');
+                })
+                .catch(error => {
+                    console.error('Error loading session:', error);
+                    alert('Error loading session: ' + error.message);
+                });
+        }
+
+        function toggleEvaluationForm() {
+            const evaluationForm = document.getElementById('evaluationForm');
+            evaluationForm.style.display = evaluationForm.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function submitEvaluation() {
+            if (!currentSessionId || !currentDocument) return;
+            
+            // Get evaluation data
+            const relevance = document.querySelector('input[name="relevanceRating"]:checked')?.value || 0;
+            const timeSaved = document.getElementById('timeSavedInput').value;
+            
+            // Submit evaluation
+            fetch('/evaluate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    document: currentDocument,
+                    relevance: relevance,
+                    timeSaved: timeSaved,
+                    sessionId: currentSessionId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                alert('Thank you for your feedback!');
+                document.getElementById('evaluationForm').style.display = 'none';
+            })
+            .catch(error => {
+                console.error('Error submitting evaluation:', error);
+                alert('Error submitting evaluation: ' + error.message);
+            });
+        }
+
+        function updateStatus(message) {
+            document.getElementById('statusIndicator').textContent = message;
+        }
+
+        function truncateText(text, maxLength) {
+            if (!text) return '';
+            return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+        }
+
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+    </script>
+</body>
+</html> 
