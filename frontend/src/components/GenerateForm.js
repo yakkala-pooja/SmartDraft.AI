@@ -13,13 +13,15 @@ import {
   Stack,
   Avatar,
   Tooltip,
-  Alert
+  Alert,
+  LinearProgress
 } from '@mui/material';
 import { 
   Create as CreateIcon,
   Tune as TuneIcon,
   Bolt as BoltIcon,
-  Memory as MemoryIcon
+  Memory as MemoryIcon,
+  Timer as TimerIcon
 } from '@mui/icons-material';
 
 const models = [
@@ -35,6 +37,8 @@ const GenerateForm = ({ onGenerate, isGenerating }) => {
   const [chunks, setChunks] = useState(3);
   const [memoryWarning, setMemoryWarning] = useState(false);
   const [availableMemory, setAvailableMemory] = useState(null);
+  const [generationTime, setGenerationTime] = useState(0);
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
 
   useEffect(() => {
     // Check memory status from the server
@@ -62,6 +66,34 @@ const GenerateForm = ({ onGenerate, isGenerating }) => {
     checkMemoryStatus();
   }, [model]);
 
+  // Track generation time and show warning if it's taking too long
+  useEffect(() => {
+    let timer = null;
+    
+    if (isGenerating) {
+      setGenerationTime(0);
+      setShowTimeoutWarning(false);
+      
+      timer = setInterval(() => {
+        setGenerationTime(prev => {
+          const newTime = prev + 1;
+          // Show timeout warning after 2 minutes
+          if (newTime >= 120 && !showTimeoutWarning) {
+            setShowTimeoutWarning(true);
+          }
+          return newTime;
+        });
+      }, 1000);
+    } else {
+      setGenerationTime(0);
+      setShowTimeoutWarning(false);
+    }
+    
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isGenerating]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!prompt.trim()) return;
@@ -82,6 +114,13 @@ const GenerateForm = ({ onGenerate, isGenerating }) => {
         ? `${requiredMemory}GB required (${availableMemory}GB available)` 
         : `${requiredMemory}GB required but only ${availableMemory}GB available`
     };
+  };
+
+  // Format generation time as mm:ss
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -305,6 +344,52 @@ const GenerateForm = ({ onGenerate, isGenerating }) => {
           </Box>
         </Stack>
       </Paper>
+      
+              {isGenerating && (
+        <Box sx={{ mt: 2, mb: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="body2" fontWeight={500}>
+              Generating document...
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <TimerIcon sx={{ fontSize: '0.875rem', color: 'text.secondary', mr: 0.75 }} />
+              <Typography variant="caption" color="text.secondary">
+                {formatTime(generationTime)}
+              </Typography>
+            </Box>
+          </Box>
+          <LinearProgress 
+            variant="indeterminate" 
+            sx={{ 
+              height: 6, 
+              borderRadius: 3,
+              backgroundColor: 'rgba(99, 102, 241, 0.1)',
+              '& .MuiLinearProgress-bar': {
+                backgroundColor: 'primary.main',
+              }
+            }} 
+          />
+          
+          {showTimeoutWarning && (
+            <Alert 
+              severity="info" 
+              sx={{ 
+                mt: 2, 
+                borderRadius: 2,
+                border: '1px solid',
+                borderColor: 'info.main',
+                backgroundColor: 'info.light',
+                fontWeight: 500
+              }}
+            >
+              <Typography variant="body2">
+                Document generation is taking longer than expected. This could be due to the model size or complexity of your request.
+                Please be patient or try again with a smaller model.
+              </Typography>
+            </Alert>
+          )}
+        </Box>
+      )}
       
       <Button
         type="submit"

@@ -247,6 +247,12 @@ function App() {
       
       setDocument(response.document);
       setMarkdownContent(response.document.formatted_text);
+      
+      // Show memory warning if present
+      if (response.memory_warning) {
+        const warningContent = `> **Memory Warning:** ${response.memory_warning}\n\n${response.document.formatted_text}`;
+        setMarkdownContent(warningContent);
+      }
     } catch (error) {
       console.error('Error generating document:', error);
       // Show error message to user

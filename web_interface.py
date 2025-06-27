@@ -53,8 +53,8 @@ def get_smart_draft():
         app.logger.error(f"Error loading smart_draft module: {e}")
         return None
 
-def check_memory_requirements(model_name: str) -> bool:
-    """Check if the system has enough memory for the model."""
+def check_memory_requirements(model_name: str) -> dict:
+    """Check if the system has enough memory for the model and return info."""
     try:
         # Get available memory in GB
         mem = psutil.virtual_memory()
@@ -69,12 +69,22 @@ def check_memory_requirements(model_name: str) -> bool:
         if not has_enough_memory:
             app.logger.warning(f"Low memory warning: {model_name} requires ~{required_memory_gb}GB but only {available_memory_gb:.1f}GB available")
         
-        return has_enough_memory
+        return {
+            "has_enough": has_enough_memory,
+            "required": required_memory_gb,
+            "available": round(available_memory_gb, 1),
+            "warning": None if has_enough_memory else f"Low memory warning: {model_name} requires ~{required_memory_gb}GB but only {available_memory_gb:.1f}GB available"
+        }
     
     except Exception as e:
         app.logger.error(f"Error checking memory: {e}")
         # Default to True if we can't check
-        return True
+        return {
+            "has_enough": True,
+            "required": MODEL_MEMORY_REQUIREMENTS.get(model_name, 4),
+            "available": None,
+            "warning": None
+        }
 
 def preload_resources():
     """Preload resources in a background thread."""
@@ -144,12 +154,9 @@ def generate():
             'sessionId': session_id
         }), 400
     
-    # Check memory requirements
-    if not check_memory_requirements(model_name):
-        return jsonify({
-            'error': f'Not enough memory to run {model_name}. This model requires approximately {MODEL_MEMORY_REQUIREMENTS.get(model_name, 4)}GB of RAM. Please try a smaller model or close other applications.',
-            'sessionId': session_id
-        }), 400
+    # Check memory requirements but don't block generation
+    memory_status = check_memory_requirements(model_name)
+    memory_warning = memory_status.get("warning")
     
     try:
         # Lazy load smart_draft module
@@ -160,12 +167,59 @@ def generate():
                 'sessionId': session_id
             }), 500
         
-        # Generate the document
-        document = smart_draft.generate_document(user_prompt, model_name, num_chunks, True)
+        # Set a timeout for the generation process
+        import signal
+        import threading
+        from contextlib import contextmanager
+        
+        @contextmanager
+        def timeout_handler(seconds):
+            if os.name != 'nt':  # Unix systems
+                def handle_timeout(signum, frame):
+                    raise TimeoutError(f"Document generation timed out after {seconds} seconds")
+                
+                original_handler = signal.signal(signal.SIGALRM, handle_timeout)
+                try:
+                    signal.alarm(seconds)
+                    yield
+                finally:
+                    signal.alarm(0)
+                    signal.signal(signal.SIGALRM, original_handler)
+            else:  # Windows systems
+                timer = None
+                timeout_occurred = False
+                
+                def handle_timeout():
+                    nonlocal timeout_occurred
+                    timeout_occurred = True
+                
+                timer = threading.Timer(seconds, handle_timeout)
+                timer.start()
+                try:
+                    yield
+                    if timeout_occurred:
+                        raise TimeoutError(f"Document generation timed out after {seconds} seconds")
+                finally:
+                    timer.cancel()
+        
+        # Generate the document with a 4-minute timeout
+        try:
+            with timeout_handler(240):  # 4 minutes
+                document = smart_draft.generate_document(user_prompt, model_name, num_chunks, True)
+        except TimeoutError as e:
+            app.logger.error(f"Timeout error: {e}")
+            return jsonify({
+                'error': 'Document generation timed out. Try using a smaller model or fewer chunks.',
+                'sessionId': session_id
+            }), 504  # Gateway Timeout
         
         # Add session ID and save timestamp
         document['sessionId'] = session_id
         document['saveTimestamp'] = datetime.now().isoformat()
+        
+        # Include memory warning if present
+        if memory_warning:
+            document['memory_warning'] = memory_warning
         
         # Save to session storage (server-side)
         session_file = OUTPUT_DIR / f"session_{session_id}.json"
@@ -175,10 +229,16 @@ def generate():
         # Update cache
         _sessions_cache[session_id] = document
         
-        return jsonify({
+        response_data = {
             'document': document,
             'sessionId': session_id
-        })
+        }
+        
+        # Add memory warning to response if present
+        if memory_warning:
+            response_data['memory_warning'] = memory_warning
+            
+        return jsonify(response_data)
     
     except MemoryError:
         app.logger.error("Memory error occurred during document generation")

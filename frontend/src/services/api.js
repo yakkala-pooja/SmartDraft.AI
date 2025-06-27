@@ -18,9 +18,8 @@ const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 300) => {
     } catch (error) {
       retries++;
       
-      // If we've reached max retries or the error is not retryable, throw
-      if (retries >= maxRetries || 
-          (error.message && error.message.includes('not enough memory'))) {
+      // If we've reached max retries, throw
+      if (retries >= maxRetries) {
         throw error;
       }
       
@@ -56,7 +55,7 @@ export const generateDocument = async (prompt, model, chunks, sessionId = null) 
           sessionId
         }),
         // Add timeout to prevent hanging requests
-        signal: AbortSignal.timeout(120000) // 2 minute timeout
+        signal: AbortSignal.timeout(300000) // 5 minute timeout (increased from 2 minutes)
       });
       
       if (!response.ok) {
