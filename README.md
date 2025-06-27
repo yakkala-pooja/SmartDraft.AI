@@ -10,7 +10,7 @@ SmartDraft.AI combines the power of semantic search with local large language mo
 
 ### Intelligent Document Generation
 - **Semantic Search Engine**: Finds relevant content from a corpus of 492,887 WikiHow articles
-- **Local LLM Integration**: Uses Ollama to run powerful language models locally for privacy and control
+- **Local LLM Integration**: Uses Ollama to run powerful language models locally for privacy and control (4 Models)
 - **Structured Output**: Automatically formats content with summary, key insights, and conclusion
 - **Memory-Efficient**: Optimized to run even on systems with limited resources
 
