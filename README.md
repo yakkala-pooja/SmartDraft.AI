@@ -40,7 +40,7 @@ SmartDraft.AI consists of several integrated components:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/SmartDraft.AI.git
+git clone https://github.com/yakkala-pooja/SmartDraft.AI.git
 cd SmartDraft.AI
 
 # Install dependencies
